@@ -1,0 +1,10 @@
+# about cargo configuration: https://doc.rust-lang.org/cargo/reference/config.html
+[build]
+target = "x86_64-build-target.json"
+
+[unstable]
+# for recompiling `core` lib
+# `compiler_builtins` is a dependency of `core`
+build-std = ["core", "compiler_builtins"] 
+# to enable `memset`, `memcmp`, `memcpy` etc. when compiling `core` and `compiler_builtins`
+build-std-features = ["compiler-builtins-mem"]
