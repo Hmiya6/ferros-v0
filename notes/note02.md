@@ -145,7 +145,7 @@ build-std = ["core" ,"compiler_builtins"]
 MEMO: `build-std` を (プロジェクトごとに) 切り替えで使えるようしたい.
 
 ### Memory-Related Intrinsics (メモリ関連の本質的なことについて)
-MEMO: intrinsic - 本来備わっている, 固有の, 本質的な
+MEMO: intrinsic - 本来備わっている, 固有の, 本質的な  
 TODO: C (とくにメモリの部分) についての理解が必要.
 
 Rust コンパイラはすべてのシステムでいくつかの built-in 関数群が使用可能であることを仮定している. `compiler_builtins` で多くが提供される. しかし, いくつかのメモリ関連の関数群はデフォルトで有効になっていない. 通常はシステム側の C ライブラリで提供されるからである. これには `memset`, `memcpy` ,`memcmp` が含まれる. (このカーネルをコンパイルするのにすぐ必要になるわけではないが, そのうち必要になる)
@@ -240,6 +240,18 @@ let r = address as *const i32;
 QUESTION: qemu を起動したときにキーボードとマウスの操作が乗っ取られ (?), 操作不能になってしまった. ((システムのフリーズではない.) 解除方法・防ぐ方法はある?
 
 ここからは [Booting - Writing an OS in Rust 3rd Edition](https://github.com/phil-opp/blog_os/blob/edition-3/blog/content/edition-3/posts/02-booting/index.md) に従う.
+
+
+
+
+## 感想
+- Rust の機能が知ることができて面白い 
+- MikanOS で UEFI を使うので, BIOS でのブートではなく UEFI で進めたい -> `bootloader` 0.10~ が必要
+- `bootloader` ~0.9 と 0.10~ では大きく違う. 
+- Writing an OS in Rust の 3rd edition があった (2章までしかない). 
+- 
+- 
+
 
 <!--
 ### 補足: LLVM
