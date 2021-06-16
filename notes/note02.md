@@ -239,7 +239,144 @@ let r = address as *const i32;
 
 QUESTION: qemu を起動したときにキーボードとマウスの操作が乗っ取られ (?), 操作不能になってしまった. ((システムのフリーズではない.) 解除方法・防ぐ方法はある?
 
+---
 ここからは [Booting - Writing an OS in Rust 3rd Edition](https://github.com/phil-opp/blog_os/blob/edition-3/blog/content/edition-3/posts/02-booting/index.md) に従う.
+
+ここまで書いてきた `.cargo/config.toml` を使うとうまく行かない. これは 以下で登場する `boot` クレートのビルド設定と, カーネルのビルド設定が競合するから. 当該ファイルはコメントアウトする.
+
+
+## UEFI
+Unified Extensible Firmware Interface (UEFI) にはブートローダの実装をシンプルにする便利な機能が多くある
+- CPU を 64bit モードに直接初期化する (BIOS はまず 16bit モードで初期化を行う)
+- disk partition と実行ファイルを認識可能で, ディスクからロードが可能 (最初の 512byte という制限が存在しない)
+- 異なる CPU アーキテクチャで同じインターフェースが使える
+
+windows 優遇だと批判されることもある
+
+### Boot Process
+
+- powering on と self-testing が終わると, UEFI ファームウェアは EFI system partitions と呼ばれる bootable disk partitions を探す. 当該パーティションは fatfs である必要がある. 
+- EFI system partition を見つけると, `efi/boot/bootx64.efi` (x86_64 の場合) の名前のついた実行ファイルを探す. この実行ファイルは Portable Executable (PE) フォーマット (windows でよくある形式) でなければならない. 
+- その実行ファイルをメモリにロードし, 実行環境 (メモリ, CPU) をセットアップした後, 実行ファイルの entry point へジャンプする.
+
+通常 この実行ファイルは bootloader でその後に OS カーネルがロードされる.
+
+### How we will use UEFI
+
+UEFI interface は協力だが, ほとんどの OS は UEFI を bootloader のためだけに使う. そのほうがコントロールしやすいため. 
+
+### The Multiboot Standard
+
+Multiboot と呼ばれる bootloader の標準がある. bootloader と OS のインターフェースを規定している. リファレンス実装が GNU GRUB. 
+
+(つまり, UEFI -> GRUB -> OS = Kernel)
+
+問題も多いため, 今回は扱わない.
+
+## Bootable Disk Image
+
+how to create bootable disk image: 
+- 最初は cargo が `bootloader` 依存のソースコードをおいた場所を見つける.
+- 次にビルドコマンドの準備
+
+
+### A `boot` crate
+これらのステップを手動で踏むのは面倒なので自動化する. `boot` クレートをつくる.
+
+```sh
+cargo new --bin boot
+```
+
+`Cargo.toml` に追記
+```toml
+[workspace]
+members = ["boot"] 
+```
+
+`boot` クレートはビルドで使われる. ビルドで使われるだけなので標準ライブラリも使える.
+
+### Locating the `bootloader` Source
+
+> The first step in creating the bootable disk image is to locate where cargo put the source code of the `bootloader` dependency.
+
+bootable disk image をつくる最初の段階は, cargo が `bootloader` 依存のソースコードを置く場所を見つけること.  
+そのため `cargo metadata` subcommand を使うことができ, その出力には  `bootloader` クレートを含むすべての依存クレートの manifest path が含まれる. 
+
+出力は JSON 形式だが, JSON をパースするのは道を外れすぎるので `bootloader-locator` を使う. 
+
+```rust
+// boot/src/main.rs
+
+use bootloader_locator::locate_bootloader;
+
+pub fn main() {
+    let bootloader_manifest = locate_bootloader("bootloader").unwrap();
+    dbg!(bootloader_manifest);
+}
+```
+
+`locate_bootloader` 関数は bootloader の依存関係の名前を引数として取り, そのため異なる名前のブートローダも使える. 
+
+### Running the Build Command
+
+次の段階はビルドコマンドの実行. 
+
+```sh
+cargo builder --kernel-manifest path/to/kernel/Cargo.toml \
+    --kernel-binary path/to/kernel_bin
+```
+
+これを `main` から起動したい.
+
+```rust
+// in boot/src/main.rs
+
+use std::process::Command; // new
+
+pub fn main() {
+    let bootloader_manifest = locate_bootloader("bootloader").unwrap();
+
+    // new code below
+    // `todo!()` を使うと, 未完成のコードを表現できる
+    // `std::todo!()`: https://doc.rust-lang.org/std/macro.todo.html
+    let kernel_binary = todo!();
+    let kernel_manifest = todo!();
+    let target_dir = todo!();
+    let out_dir = todo!();
+
+    // create a new build command; use the `CARGO` environment variable to
+    // also support non-standard cargo versions
+    // 新しいコマンドをつくる 
+    // cargo の path を得るのは, `bootloader` と同じ cargo でコンパイルすることができる
+    let mut build_cmd = Command::new(env!("CARGO"));
+
+    // pass the arguments
+    // サブコマンド builder 
+    build_cmd.arg("builder");
+    // コマンドライン引数
+    build_cmd.arg("--kernel-manifest").arg(&kernel_manifest);
+    build_cmd.arg("--kernel-binary").arg(&kernel_binary);
+    build_cmd.arg("--target-dir").arg(&target_dir);
+    build_cmd.arg("--out-dir").arg(&out_dir);
+
+    // set the working directory
+    // コマンドを `bootloader` のディレクトリで実行する
+    let bootloader_dir = bootloader_manifest.parent().unwrap();
+    build_cmd.current_dir(&bootloader_dir);
+
+    // run the command
+    let exit_status = build_cmd.status().unwrap();
+    if !exit_status.success() {
+        panic!("bootloader build failed");
+    }
+}
+
+```
+[Environment Variables - The Cargo Book](https://doc.rust-lang.org/cargo/reference/environment-variables.html)
+cargo は環境変数を読み書きする. なぜ? コードの側から cargo を扱えるようにするため?
+
+
+
 
 
 
