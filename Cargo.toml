@@ -9,6 +9,8 @@ edition = "2018"
 [dependencies]
 bootloader = "0.10"
 
+[workspace]
+members = ["boot"]
 
 
 [profile.dev]
