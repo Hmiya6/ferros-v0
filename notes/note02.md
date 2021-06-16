@@ -144,7 +144,9 @@ build-std = ["core" ,"compiler_builtins"]
 
 MEMO: `build-std` を (プロジェクトごとに) 切り替えで使えるようしたい.
 
-### Memory-Related Intrinsics (メモリ関連の本質的なことについて)
+### Memory-Related Intrinsics
+> "intrinsics" は確かに「本質的な」みたいな意味がありますけど, 低レイヤプログラミングのぶんやでは用語として使われます. よくある意味としては, 普通のプログラミング環境では提供されない, CPU やシステム固有の機能群のことです. 
+
 MEMO: intrinsic - 本来備わっている, 固有の, 本質的な  
 TODO: C (とくにメモリの部分) についての理解が必要.
 
@@ -237,13 +239,20 @@ let r = address as *const i32;
 
 `bootloader` 0.10 ~ から, 大きな変更がある. (BIOS だけでなく **UEFI に対応**. 使い方も変更.)
 
-QUESTION: qemu を起動したときにキーボードとマウスの操作が乗っ取られ (?), 操作不能になってしまった. ((システムのフリーズではない.) 解除方法・防ぐ方法はある?
+QUESTION: qemu を起動したときにキーボードとマウスの操作が乗っ取られ (?), 操作不能になってしまった. ((システムのフリーズではない.) 解除方法・防ぐ方法はある?: `Ctrl+Alt+G`, stdio をモニタとして使う
 
 ---
 ここからは [Booting - Writing an OS in Rust 3rd Edition](https://github.com/phil-opp/blog_os/blob/edition-3/blog/content/edition-3/posts/02-booting/index.md) に従う.
 
 ここまで書いてきた `.cargo/config.toml` を使うとうまく行かない. これは 以下で登場する `boot` クレートのビルド設定と, カーネルのビルド設定が競合するから. 当該ファイルはコメントアウトする.
 
+代わりに, `.cargo/config.toml` に以下を追記:
+```toml
+# for `bootloader` 0.10~
+[alias]
+kbuild = """build --target x86_64-build-target.json -Z build-std=core \
+    -Z build-std-features=compiler-builtins-mem"""
+```
 
 ## UEFI
 Unified Extensible Firmware Interface (UEFI) にはブートローダの実装をシンプルにする便利な機能が多くある
@@ -350,19 +359,20 @@ pub fn main() {
     // cargo の path を得るのは, `bootloader` と同じ cargo でコンパイルすることができる
     let mut build_cmd = Command::new(env!("CARGO"));
 
+    // set the working directory
+    // コマンドを `bootloader` のディレクトリで実行する
+    let bootloader_dir = bootloader_manifest.parent().unwrap();
+    build_cmd.current_dir(&bootloader_dir);
+
     // pass the arguments
-    // サブコマンド builder 
-    build_cmd.arg("builder");
+    // サブコマンド builder // これは `bootloader` の builder
+    build_cmd.arg("builder"); // QUESTION: なぜ使える?? -> `bootloader` ディレクトリに移動してコマンドを実行しているから
     // コマンドライン引数
     build_cmd.arg("--kernel-manifest").arg(&kernel_manifest);
     build_cmd.arg("--kernel-binary").arg(&kernel_binary);
     build_cmd.arg("--target-dir").arg(&target_dir);
     build_cmd.arg("--out-dir").arg(&out_dir);
 
-    // set the working directory
-    // コマンドを `bootloader` のディレクトリで実行する
-    let bootloader_dir = bootloader_manifest.parent().unwrap();
-    build_cmd.current_dir(&bootloader_dir);
 
     // run the command
     let exit_status = build_cmd.status().unwrap();
@@ -375,9 +385,63 @@ pub fn main() {
 [Environment Variables - The Cargo Book](https://doc.rust-lang.org/cargo/reference/environment-variables.html)
 cargo は環境変数を読み書きする. なぜ? コードの側から cargo を扱えるようにするため?
 
+最終的に以下のようになった:
+```rust
+use bootloader_locator::locate_bootloader;
+use std::process::Command;
+use std::path::Path;
 
+pub fn main() {
+    let bootloader_manifest = locate_bootloader("bootloader").unwrap();
+    
+    // TODO: don't hardcode this
+    let kernel_binary = Path::new("target/x86_64-build-target/debug/ferros")
+        .canonicalize().unwrap();
 
+    // the path to the root of this crate, set by cargo
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR")); // `boot` crate dir
+    let kernel_dir = manifest_dir.parent().unwrap(); // kernel dir (`ferros` dir)
+    let kernel_manifest = kernel_dir.join("Cargo.toml"); // ferros' manifest
+    let target_dir = kernel_dir.join("target"); // `ferros/target`
+    let out_dir = kernel_binary.parent().unwrap(); // `ferros/target/x86_64-build-target/debug`
 
+    // create a new build command; use the `CARGO` environment variable to 
+    // also support non-standard cargo versions
+    let mut build_cmd = Command::new(env!("CARGO"));
+    println!("{}", env!("CARGO"));
+
+    // pass the arguments
+    build_cmd.arg("builder");
+    build_cmd.arg("--kernel-manifest").arg(&kernel_manifest);
+    build_cmd.arg("--kernel-binary").arg(&kernel_binary);
+    build_cmd.arg("--target-dir").arg(&target_dir);
+    build_cmd.arg("--out-dir").arg(&out_dir);
+
+    // set the working directory
+    let bootloader_dir = bootloader_manifest.parent().unwrap();
+    build_cmd.current_dir(&bootloader_dir);
+
+    // run the command
+    let exit_status = build_cmd.status().unwrap();
+    if !exit_status.success() {
+        panic!("bootloader build failed");
+    }
+}
+
+```
+
+諸々のツールチェーン設定 (`rust-toolchain`):
+```toml
+[toolchain]
+channel = "nightly"
+components = ["rust-src", "rustfmt", "clippy", "llvm-tools-preview"]
+```
+`channel` の指定や, `components` のインストールはコマンドからも可能だが, ファイルに明記することで管理がしやすくなる.
+
+```sh
+cargo kbuild
+cargo run --package boot
+```
 
 
 
