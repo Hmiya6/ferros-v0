@@ -82,7 +82,7 @@ impl Writer {
         for byte in s.bytes() {
             match byte {
                 // printable ASCII byte or newline
-                0x20..=0x7e | b'n' => self.write_byte(byte),
+                0x20..=0x7e | b'\n' => self.write_byte(byte),
                 // not part of printable ASCII range
                 _ => self.write_byte(0xfe), // `0xfe` represents `■` on VGA.
             }
@@ -94,7 +94,7 @@ impl Writer {
 pub fn print_something() {
     let mut writer = Writer {
         column_position: 0,
-        color_code: ColorCode::new(Color::Yellow, Color::DarkGray),
+        color_code: ColorCode::new(Color::Yellow, Color::Black),
         buffer: unsafe {&mut *(0xb8000 as *mut Buffer)}, // `Buffer` への生ポインタの参照外しの可変参照.
     };
 
