@@ -1,6 +1,8 @@
 
 #![no_std] // don't link the Rust standard library
 #![no_main] // disbale all Rust-level entry points
+mod vga_buffer;
+
 
 use core::panic::PanicInfo;
 use bootloader::{entry_point, BootInfo};
@@ -17,12 +19,12 @@ fn panic(_info: &PanicInfo) -> ! { // function that never returns: `-> !` (diver
 entry_point!(kernel_main);
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // turn the screen gray
-    if let Some(framebuffer) = boot_info.framebuffer.as_mut() {
-        for byte in framebuffer.buffer_mut() {
-            *byte = 0x90;
-        }
-    }
-
+//     if let Some(framebuffer) = boot_info.framebuffer.as_mut() {
+//         for byte in framebuffer.buffer_mut() {
+//             *byte = 0x90;
+//         }
+//     }
+    vga_buffer::print_something();
     loop {}
 }
 
