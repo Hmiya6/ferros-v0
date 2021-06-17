@@ -129,6 +129,8 @@ Rust for Rustacean (書籍) より
 
 ### Text Buffer
 
+出来上がったのがこれ:
+`src/vga_buffer.rs`
 ```rust
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,7 +160,7 @@ struct ColorCode(u8);
 
 impl ColorCode {
     fn new(foreground: Color, background: Color) -> Self {
-        Self((background as u8) << 4 | (foreground as u8))
+        Self((background as u8) << 4 | (foreground as u8)) // background = 0xf, foreground = 0x6, => (background << 4 | foreground) == 0xf6
     }
 }
 
@@ -237,6 +239,4 @@ pub fn print_something() {
 
 ```
 
-
-
-
+TODO: `bootloader` 0.10~ では, 動かない可能性がある. ~0.9 に戻して実装する?  

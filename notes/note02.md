@@ -444,6 +444,20 @@ cargo run --package boot
 ```
 
 
+BIOS として起動
+```sh
+qemu-system-x86_64 -drive \
+    format=raw,file=target/x86_64-blog_os/debug/bootimage-bios-blog_os.img
+```
+
+UEFI として起動:
+```sh
+# まず, `OVMF_pure-efi.fd` をダウンロードする.
+qemu-system-x86_64 -drive \
+    format=raw,file=target/x86_64-blog_os/debug/bootimage-uefi-blog_os.img \
+    -bios /path/to/OVMF_pure-efi.fd,
+```
+
 
 ## 感想
 - Rust の機能が知ることができて面白い 
