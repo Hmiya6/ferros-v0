@@ -27,7 +27,7 @@ fn panic(_info: &PanicInfo) -> ! { // function that never returns: `-> !` (diver
 //     loop {}
 // }
 
-static HELLO: &[u8] = b"Hello World!";
+// static HELLO: &[u8] = b"Hello World!";
 
 // bootloader < 0.9
 #[no_mangle] // don't mangle the name of this function
@@ -36,7 +36,7 @@ pub extern "C" fn _start() -> ! {
     // named `_start` by default
     
     // cast integer `0xb8000` into raw pointer
-    let vga_buffer = 0xb8000 as *mut u8;
+    // let vga_buffer = 0xb8000 as *mut u8;
     
     // then, iterate over the bytes of the `HELLO`
     // for (i, &byte) in HELLO.iter().enumerate() {
