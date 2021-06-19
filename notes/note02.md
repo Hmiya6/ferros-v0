@@ -459,6 +459,17 @@ qemu-system-x86_64 -drive \
 ```
 
 
+### やっぱり `bootloader` 0.9 を使う
+
+VGA text buffer を使うには `bootloader` 0.9 がいい.
+
+コマンド:
+```sh
+qemu-system-x86_64 -drive format=raw,file=target/x86_64-build-target/debug/bootimage-ferros.bin -monitor stdio
+```
+
+
+
 ## 感想
 - Rust の機能が知ることができて面白い 
 - MikanOS で UEFI を使うので, BIOS でのブートではなく UEFI で進めたい -> `bootloader` 0.10~ が必要
