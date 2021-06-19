@@ -1,7 +1,7 @@
 
 #![no_std] // don't link the Rust standard library
 #![no_main] // disbale all Rust-level entry points
-// mod vga_buffer;
+mod vga_buffer;
 
 
 use core::panic::PanicInfo;
@@ -39,13 +39,14 @@ pub extern "C" fn _start() -> ! {
     let vga_buffer = 0xb8000 as *mut u8;
     
     // then, iterate over the bytes of the `HELLO`
-    for (i, &byte) in HELLO.iter().enumerate() {
-        unsafe {
-            // `offset` method to write the string byte and the corresponding color byte
-            *vga_buffer.offset(i as isize * 2) = byte;
-            *vga_buffer.offset(i as isize * 2 + 1) = 0xb; // light cyan
-        }
-    }
+    // for (i, &byte) in HELLO.iter().enumerate() {
+    //     unsafe {
+    //         // `offset` method to write the string byte and the corresponding color byte
+    //         *vga_buffer.offset(i as isize * 2) = byte;
+    //         *vga_buffer.offset(i as isize * 2 + 1) = 0xb; // light cyan
+    //     }
+    // }
+    vga_buffer::print_something();
 
     loop {}
 }
