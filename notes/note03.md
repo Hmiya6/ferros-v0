@@ -31,7 +31,9 @@ VGA テキストバッファは `0xb8000` への memory-mapped I/O によって�
 
 ---
 
-メモリにマップされた I/O 機器と, 通常のメモリではその扱い方が異なる場合もある (通常の read/write ができない可能性もある).
+メモリにマップされた I/O 機器と, 通常のメモリではその扱い方が異なる場合もある (通常の read/write ができない可能性もある). 
+
+また, コンパイラはメモリにマップされた I/O と通常のメモリの区別がつかない.
 
 ## A Rust Module
 
@@ -132,37 +134,7 @@ Rust for Rustacean (書籍) より
 出来上がったのがこれ:
 `src/vga_buffer.rs`
 ```rust
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum Color {
-    Black = 0,
-    Blue = 1,
-    Green = 2,
-    Cyan = 3,
-    Red = 4,
-    Magenta = 5,
-    Brown = 6,
-    LightGray = 7,
-    DarkGray = 8,
-    LightBlue = 9,
-    LightGreen = 10,
-    LightCyan = 11,
-    LightRed = 12,
-    Pink = 13,
-    Yellow = 14,
-    White = 15,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(transparent)]
-struct ColorCode(u8);
-
-impl ColorCode {
-    fn new(foreground: Color, background: Color) -> Self {
-        Self((background as u8) << 4 | (foreground as u8)) // background = 0xf, foreground = 0x6, => (background << 4 | foreground) == 0xf6
-    }
-}
+// * snip *
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
@@ -240,3 +212,72 @@ pub fn print_something() {
 ```
 
 TODO: `bootloader` 0.10~ では, 動かない可能性がある. ~0.9 に戻して実装する?  
+-> した
+
+
+### Volatile
+
+この方法は Rust コンパイラの最適化によって機能しなくなる可能性がある. 
+
+問題は `Buffer` に書き込むだけで読み込みをしないこと. 
+コンパイラには (通常の RAM にアクセスするのか VGA buffer メモリにアクセスするのか判別できない. 
+したがって, コンパイラは書き込みを不要とみなして省略する可能性がある. 
+この最適化を回避するため, **これらの書き込みは volatile としなければならない**. 
+これによって書き込みには副作用があり, 最適化されるべきでないことをコンパイラに伝えることができる. 
+
+VGA buffer への volatile write を使うため, `volatile` ライブラリを使う. 
+このクレートは `read` `write` メソッドを持つ `Volatile` ラッパーを提供する.
+
+
+`Cargo.toml`
+```toml
+[dependencies]
+volatile = "0.2.6"
+```
+
+`0.2.6` でないと動かない. 
+
+`src/vga_buffer.rs`:
+```rust
+use volatile::Volatile;
+
+struct Buffer {
+    chars: [[Volatile<ScreenChar>; BUFFER_WIDTH]; BUFFER_HEIGHT],
+}
+```
+
+```rust
+impl Writer {
+    pub fn write_byte(&mut self, byte: u8) {
+        match byte {
+            b'\n' => self.new_line(),
+            byte => {
+
+                // * snip *
+
+                self.buffer.chars[row][col].write(ScreenChar { // `write`
+                    ascii_character: byte,
+                    color_code,
+                });
+                
+                // * snip *
+            }
+        }
+    }
+    
+    // * snip *
+
+}
+```
+
+### Formatting macros
+コードを書くだけなので省略
+### Newlines
+コードを書くだけなので省略
+
+## A Global Interface
+
+
+
+
+
