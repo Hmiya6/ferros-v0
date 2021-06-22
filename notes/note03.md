@@ -276,6 +276,216 @@ impl Writer {
 コードを書くだけなので省略
 
 ## A Global Interface
+`Writer` インスタンスを持ち出さなくても他のモジュールからインターフェースとして使える global writer  がほしい -> static な `WRITER` をつくる.
+
+```rust
+// in src/vga_buffer.rs
+
+pub static WRITER: Writer = Writer {
+    column_position: 0,
+    color_code: ColorCode::new(Color::Yellow, Color::Black),
+    buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
+};
+
+```
+
+これはコンパイルできない. 
+
+エラーコード: 
+```
+error[E0015]: calls in statics are limited to constant functions, tuple structs and tuple variants
+   --> src/vga_buffer.rs:132:17
+    |
+132 |     color_code: ColorCode::new(Color::Yellow, Color::Black),
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0658]: dereferencing raw pointers in statics is unstable
+   --> src/vga_buffer.rs:133:21
+    |
+133 |     buffer: unsafe {&mut *(0xb8000 as *mut Buffer)},
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+```
+
+statics はコンパイル時に初期化 initialize される (通常の変数は run time で初期化される): "const evaluator" (簡単にいえば, const 値をコンパイル時に計算処理しておくこと. ). 
+
+`ColorCode` のエラーは constant 関数 によって解決可能. しかし根本的な問題は Rust の const evaluator はコンパイル時に生ポインタを参照に変換できないことにある (今後解決されると思われる). 
+
+---
+TODO: const evaluator について, Rust のそれについて
+TODO: constant function: コンパイル時に実行される関数?
+
+---
+
+### Lazy Statics
+> The one-time initialization of statics with non-const functions is a common problem in Rust.
+
+非 const 関数で statics を一度だけしか初期化しないのは Rust のよくある問題. 
+
+---
+QUESTION: どういう意味?
+A: 
+> 設定ファイルや辞書データなどの適当なファイルをあらかじめ読んでおき、その内容をグローバルに置きたい、という場面はそれなりにあると思います。Rust では、static でグローバル変数をつくることができますが、初期化に使う式はコンパイル時に評価できるものでなくてならないため、先のような場面では使えません。
+
+> ではどうするかというと、static mut な変数を置いて、適当な関数から適当なタイミングで初期化することになります。とてもつらい。
+
+
+`lazy-static` について
+> Deref トレイトの実装に static mut な変数を持ち、初めて deref した際に渡された式で初期化する、といった感じのようです。発想が天才のそれっぽい。
+
+from [Rust と lazy static](https://qiita.com/woxtu/items/79220899a4ebf256518c)
+
+> lazy_static を使うと、初回アクセス時に一回だけ初期化処理が実行されるグローバル変数を作る事ができます。
+
+from [lazy_static はもう古い!? once_cell を使おう](https://zenn.dev/frozenlib/articles/lazy_static_to_once_cell)
+
+---
+
+今回の場合, 問題は, `ColorCode` を初回アクセス時に初期化したいのだが, Rust はコンパイル時に初期化するため通常の関数を使えない. 
+
+`lazy_static` クレートを使える. 
+
+`lazy_static!` マクロで `static` を遅延初期化する (初回アクセス時に初期化される). 
+
+```toml
+# in Cargo.toml
+
+[dependencies.lazy_static]
+version = "1.0"
+features = ["spin_no_std"]
+```
+
+
+```rust
+// in src/vga_buffer.rs
+
+use lazy_static::lazy_static;
+
+lazy_static! {
+    pub static ref WRITER: Writer = Writer {
+        column_position: 0,
+        color_code: ColorCode::new(Color::Yellow, Color::Black),
+        buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
+    };
+}
+
+```
+
+`WRITER` は mutable がよい (immutable だと書き込みができない = `&mut self` のメソッドを使えないから) 
+`static mut` は unsafe なため使いたくない. 
+`RefCell` で内部可変性をもたせることもできるが, `RefCell` 型は `Sync` でない. 
+
+### Spinlocks
+
+1つの `WRITER` を複数の場所から呼ぶことが可能 -> I/O mapped メモリへの write の競合が考えられる. 
+-> `WRITER` への mutable exclusion が必要.
+
+
+synchronized interior mutability を得るために, 標準ライブラリでは `Mutex` が使える. `Mutex` では可変の排他 mutual exclusion をスレッドをブロックすることで行う. しかし, 今の kernel には thread の概念すらないため無理. 
+
+OS なしの基本的な mutex 機能: [spinlock](https://ja.wikipedia.org/wiki/%E3%82%B9%E3%83%94%E3%83%B3%E3%83%AD%E3%83%83%E3%82%AF)
+
+```toml
+# in Cargo.toml
+[dependencies]
+spin = "0.5.2"
+```
+
+```rust
+// in src/vga_buffer.rs
+
+use spin::Mutex;
+...
+lazy_static! {
+    pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer {
+        column_position: 0,
+        color_code: ColorCode::new(Color::Yellow, Color::Black),
+        buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
+    });
+}
+```
+
+
+---
+### mutex と spinlock の相違について
+
+ロック機構
+- spinlock
+- mutex
+- semaphore
+
+The Theory
+
+スレッドが mutex をロックしようとして失敗する (すでにその mutex がロックされているため) と, そのスレッドはスリープして別のスレッドが動き出す. スレッドは起こされるまで, つまり mutex をロックしていたスレッドがアンロックするまで, スリープし続ける. 
+スレッドが spinlock をロックしようとして失敗すると, スレッドは成功するまでロックしようとリトライし続ける. 
+
+The Problem
+
+mutex の問題は スレッドをスリープさせたり起こしたりすることが expensive operations であること (CPU 命令をたくさん必要とするし, 時間もかかる). 
+mutex がロックされる時間が短い間だけであれば, スレッドをスリープさせてまた起こす時間は spinlock によるロックよりも長くかかる. 
+一方で, spinlock は CPU パワーを常に消費するため, 長くロックする場合はスレッドをスリープさせたほうがよい.
+
+The Solution
+
+single-core/single CPU system でスピンロックを使うことは全く意味がない. 
+
+multi-core/multi-CPU system で, かつ短い間のロックがたくさんあるような場合, mutex ロックよりも spinlock を使ったほうが効率がよくなる可能性がある. 
+
+The practice
+
+多くの場合, プログラマは mutex と spinlock のどちらが適しているかを事前に判別することは難しい. CPU のコア数などがわからないため.
+modern OS ではハイブリッドな mutex, ハイブリッドな spinlock が使われている. 
+
+A hybrid mutex ...
+
+A hybrid spinlock ...
+
+from [When should one use a spinlock instead of mutex?](https://stackoverflow.com/questions/5869825/when-should-one-use-a-spinlock-instead-of-mutex)
+<!--
+spinlock: 
+スレッドがロックを獲得できるまで単純にループをして定期的にロックをチェックしながら待機. 
+スレッドが短時間だけブロックされるなら, スピンロックは効率的. OS のプロセススケジューリングのオーバーヘッドなしにロックが可能. 
+カーネル内でよく使われる. 
+
+from [スピンロック - Wikipedia](https://ja.wikipedia.org/wiki/%E3%82%B9%E3%83%94%E3%83%B3%E3%83%AD%E3%83%83%E3%82%AF)
+
+
+mutex (mutual exclusion): 
+-->
+---
+
+### A println Macro
+
+[マクロ - The Rust Programming Language 日本語版](https://doc.rust-jp.rs/book-ja/ch19-06-macros.html)
+
+gloabl writer があるので, コードのどこからでも使える `println` マクロを追加できる. 
+
+
+標準ライブラリの `println` マクロ:
+```rust
+#[macro_export]
+macro_rules! println {
+    () => (print!("\n"));
+    ($($arg:tt)*) => (print!("{}\n", format_args!($($arg)*)));
+}
+```
+
+マクロは `match` と同じような arms で構成される. 
+`println` マクロには 2つのルールがある. 
+１つ目は引数のない呼び出し `println!()` で, `print!("\n")` に展開される. 
+2 つ目は引数のある呼び出し `println!("{}, World", "Hello")` で, `print!("{}\n", format_args!(""))` に展開される. 
+
+`#[macro_export]` でモジュール外からマクロを使用可能にする. この場合, マクロはクレートのルートに置かれる (`use std::println` となる, `use std::macros::println` ではない). 
+
+`print` マクロ:
+```rust
+#[macro_export]
+macro_rules! print {
+    ($($arg:tt)*) => ($crate::io::_print(format_args!($($arg)*)));
+}
+```
+
+
 
 
 
