@@ -1,5 +1,15 @@
 use core::fmt;
+use lazy_static::lazy_static;
+use spin::Mutex;
 use volatile::Volatile;
+
+lazy_static! {
+    pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer {
+        column_position: 0,
+        color_code: ColorCode::new(Color::Yellow, Color::Black),
+        buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
+    });
+}
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,8 +38,8 @@ pub enum Color {
 struct ColorCode(u8);
 
 impl ColorCode {
-    fn new(foreground: Color, background: Color) -> Self {
-        Self((background as u8) << 4 | (foreground as u8))
+    fn new(foreground: Color, background: Color) -> ColorCode {
+        ColorCode((background as u8) << 4 | (foreground as u8))
     }
 }
 
@@ -51,7 +61,7 @@ struct Buffer {
 pub struct Writer {
     column_position: usize,
     color_code: ColorCode,
-    buffer: &'static mut Buffer, // VGA text buffer lives for entire runtime
+    buffer: &'static mut Buffer,
 }
 
 impl Writer {
@@ -76,21 +86,31 @@ impl Writer {
         }
     }
 
+    fn write_string(&mut self, s: &str) {
+        for byte in s.bytes() {
+            match byte {
+                // printable ASCII byte or newline
+                0x20..=0x7e | b'\n' => self.write_byte(byte),
+                // not part of printable ASCII range
+                _ => self.write_byte(0xfe),
+            }
+        }
+    }
+
     fn new_line(&mut self) {
         // 一番上の行は以下を行わない
         for row in 1..BUFFER_HEIGHT {
             for col in 0..BUFFER_WIDTH {
-                // write each character one line above
                 let character = self.buffer.chars[row][col].read();
-                self.buffer.chars[row-1][col].write(character);
+                self.buffer.chars[row - 1][col].write(character);
             }
-            self.clear_row(BUFFER_HEIGHT - 1);
-            self.column_position = 0;
         }
+        self.clear_row(BUFFER_HEIGHT - 1);
+        self.column_position = 0;
     }
 
     fn clear_row(&mut self, row: usize) {
-        // fill a row with space
+        // 行を空白で置き換える
         let blank = ScreenChar {
             ascii_character: b' ',
             color_code: self.color_code,
@@ -99,63 +119,30 @@ impl Writer {
             self.buffer.chars[row][col].write(blank);
         }
     }
-
-    pub fn write_string(&mut self, s: &str) {
-        for byte in s.bytes() {
-            match byte {
-                // printable ASCII byte or newline
-                0x20..=0x7e | b'\n' => self.write_byte(byte),
-                // not part of printable ASCII range
-                _ => self.write_byte(0xfe), // `0xfe` represents `■` on VGA.
-            }
-        }
-    }
-
 }
 
 impl fmt::Write for Writer {
-    // fn write_fmt(&mut self, args: fmt::Arguments) -> fmt::Result {
-    //     self.write_string(args.as_str().unwrap());
-    //     Ok(())
-    // }
     fn write_str(&mut self, s: &str) -> fmt::Result {
         self.write_string(s);
         Ok(())
     }
 }
 
-
-
-
-pub static WRITER: Writer = Writer {
-    column_position: 0,
-    color_code: ColorCode::new(Color::Yellow, Color::Black),
-    buffer: unsafe {&mut *(0xb8000 as *mut Buffer)},
-};
-
-pub fn print_something() {
-    let mut writer = Writer {
-        column_position: 0,
-        color_code: ColorCode::new(Color::Yellow, Color::Black),
-        buffer: unsafe {&mut *(0xb8000 as *mut Buffer)}, // `Buffer` への生ポインタの参照外しの可変参照.
-    };
-
-    writer.write_byte(b'H');
-    writer.write_string("ello World!");
-    writer.write_string("こんにちは!");
-    use core::fmt::Write;
-    write!(writer, "num = {}", 42).unwrap();
-
+#[macro_export]
+macro_rules! print {
+    ($($arg:tt)*) => ($crate::vga_buffer::_print(format_args!($($arg)*)));
 }
 
+#[macro_export]
+macro_rules! println {
+    () => ($crate::print!("\n"));
+    ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
+}
 
-
-
-
-
-
-
-
-
+#[doc(hidden)]
+pub fn _print(args: fmt::Arguments) {
+    use core::fmt::Write;
+    WRITER.lock().write_fmt(args).unwrap();
+}
 
 
