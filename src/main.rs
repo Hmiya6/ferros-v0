@@ -2,20 +2,25 @@
 #![no_std] // don't link the Rust standard library
 #![no_main] // disbale all Rust-level entry points
 #![feature(custom_test_frameworks)]
-#![test_runner(crate::test_runner)]
+#![test_runner(ferros::test_runner)]
 #![reexport_test_harness_main = "test_main"]
-mod vga_buffer;
-
 
 use core::panic::PanicInfo;
+use ferros::println;
 
 // パニック時に呼ばれる関数
+#[cfg(not(test))] // テスト時にはコンパイルしない. 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! { // function that never returns: `-> !` (diverging function)
     println!("{}", _info);
     loop {}
 }
 
+#[cfg(test)]
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    ferros::test_panic_handler(info)
+}
 
 #[no_mangle] // don't mangle the name of this function
 pub extern "C" fn _start() -> ! {
@@ -29,21 +34,12 @@ pub extern "C" fn _start() -> ! {
     loop {}
 }
 
+
 #[test_case]
 fn trivial_assertion() {
-    print!("trivial asserttion... ");
-    assert_eq!(1, 1);
-    println!("[ok]");
+    assert_eq!(0, 0);
 }
 
-
-#[cfg(test)]
-fn test_runner(tests: &[&dyn Fn()]) {
-    println!("Running {} tests", tests.len());
-    for test in tests {
-        test();
-    }
-}
 
 
 
