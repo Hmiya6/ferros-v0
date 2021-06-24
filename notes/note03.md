@@ -377,11 +377,12 @@ lazy_static! {
 
 ### Spinlocks
 
-1つの `WRITER` を複数の場所から呼ぶことが可能 -> I/O mapped メモリへの write の競合が考えられる. 
--> `WRITER` への mutable exclusion が必要.
+1つの `WRITER` を複数の場所から呼ぶことが可能 
+-> I/O mapped メモリへの write の競合が考えられる. 
+-> `WRITER` への相互排他 mutual exclusion が必要.
 
 
-synchronized interior mutability を得るために, 標準ライブラリでは `Mutex` が使える. `Mutex` では可変の排他 mutual exclusion をスレッドをブロックすることで行う. しかし, 今の kernel には thread の概念すらないため無理. 
+synchronized interior mutability を得るために, 標準ライブラリでは `Mutex` が使える. `Mutex` では相互排他 mutual exclusion をスレッドをブロックすることで行う. しかし, 今の kernel には thread の概念すらないため無理. 
 
 OS なしの基本的な mutex 機能: [spinlock](https://ja.wikipedia.org/wiki/%E3%82%B9%E3%83%94%E3%83%B3%E3%83%AD%E3%83%83%E3%82%AF)
 
@@ -486,8 +487,39 @@ macro_rules! print {
 ```
 
 
+まとめ:
+- spinlock/mutex
+- rust のマクロ
+- メモリマップド I/O
 
 
+---
+## spinlock と割り込み
 
+
+```
+main thread: ---== critical ====->
+interrupt:      |  X=====>
+                |  |
+----------------1--2----------------
+a memory segment                     
+------------------------------------
+```
+
+### 問題
+メインスレッドがあるメモリ区画をロックしているときに, 
+割り込みが発生してそのメモリ区画をロックしようとすると, 
+1. メインスレッドは割り込みのため実行されない,
+2. 割り込みはメインスレッドが当該メモリ区画をロックしているためにスピンし続ける
+ために, デッドロックが発生する.
+
+### 解決方法
+- spinlock でのロック時に割り込みを禁止する.
+- 今回の `WRITER` であれば, 割り込み時に使われる別の writer を用意する. 
+
+### 参考
+- [Spinlocks Considered Harmful](https://matklad.github.io/2020/01/02/spinlocks-considered-harmful.html)
+- [Lesson 1: Spin locks - Linux Kernel Docs](https://www.kernel.org/doc/Documentation/locking/spinlocks.txt)
+- [排他制御関連 - Linuxカーネルメモ](https://wiki.bit-hive.com/linuxkernelmemo/pg/%E6%8E%92%E4%BB%96%E5%88%B6%E5%BE%A1%E9%96%A2%E9%80%A3)
 
 
