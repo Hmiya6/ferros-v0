@@ -84,6 +84,30 @@ port-mapped I/O は I/O バスを communicate のために使う. I/O port と c
 
 `isa-debug-exit` は port-mapped I/O を使う. `iobase` はどの port address 上で live するかを指定する (`0xf4` は x86 の IO bus として使われる). `iosize` は port サイズを指定する. 
 
+
+---
+追記:
+## memory-mapped I/O と port-mapped I/O と CPU のアドレス空間
+memory-mapped I/O と port-mapped I/O について. 
+\+ その前提となる CPU のアドレス空間について. 
+
+### CPU のアドレス空間
+- CPU にはアドレスを指定するピンが生えている (AD, A ピン). 
+- そのピンの数で一度に指定できるアドレスの最大数が決まる. 
+- Intel 8086 の場合は AD, A ピンが計 20本ある. そのためこのプロセッサで指定できるアドレスの数 (アドレス空間) は 2^20 = 1M. 
+- AD ピンはアーキテクチャの bit数存在する (AD ピンはアドレスだけでなくデータも通信するため, アーキテクチャの bit と同じ数になる. 8086 の場合は 16bit なので 16本 (+ A ピン 4本)). 
+
+[8086 のピン](https://en.wikipedia.org/wiki/File:Intel_8086_pinout.svg)
+### port-mapped I/O 
+- メモリとポートでアドレス空間を別に扱うので, 狭いアドレス空間でより有効 (M/IO ピンでメモリとポートを区別). 16bit だとアドレス空間が小さい
+- 現在は 2^64+ のアドレス空間を使用できるため, memory-mapped I/O で代替可能. 
+
+### memory-mapped I/O 
+- メモリと同等に扱える.
+- 現在は memory-mapped I/O でもアドレス空間が足りなくなることはなくなった.
+
+---
+
 ### Using the Exit Device
 
 `isa-debug-exit` はとても単純. 
@@ -145,7 +169,15 @@ serial port を使うとプログラムと QEMU はバイトをリダイレク�
 [UARTとは](https://wa3.i-3-i.info/word12982.html)
 > 「信号の通り道が1つしかない通信（シリアル通信）用の信号」と「信号の通り道が複数ある通信（パラレル通信）用の信号」の変換をする...
 
-なんのためにあるのか? コンピュータ内部ではパラレル通信だから? 
+<!-- なんのためにあるのか? コンピュータ内部ではパラレル通信だから? -->
+
+
+追記: 
+
+UART は, シリアル方式の通信規格の一つ. 
+UART は単純な規格のため古いコンピュータや小さいコンピュータにも搭載されているが, 非常に遅い (9.6Kbps). 遅いため, 大きなコンピュータでは USB に置き換わった (?). 
+
+USB (Universal Serial Bass) もシリアル方式の通信規格のひとつ. 
 
 ---
 
@@ -356,6 +388,7 @@ harness = false
 ```
     
 
+おわり
 
 
 
