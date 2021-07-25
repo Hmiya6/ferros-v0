@@ -255,7 +255,7 @@ impl Writer {
 
                 // * snip *
 
-                self.buffer.chars[row][col].write(ScreenChar { // `write`
+                self.buffer.chars[row][col].write(ScreenChar { // `write` は `Volatile` で提供される 
                     ascii_character: byte,
                     color_code,
                 });
@@ -284,6 +284,10 @@ impl Writer {
 pub static WRITER: Writer = Writer {
     column_position: 0,
     color_code: ColorCode::new(Color::Yellow, Color::Black),
+    // `Buffer` への生ポインタの参照外しの可変参照
+    // 
+    // `0xb8000 *mut Buffer` で生ポインタの開始アドレスとして宣言
+    // `*(0xb8000 *mut Buffer)` で生ポインタの参照外し
     buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
 };
 

@@ -111,6 +111,38 @@ type HandlerFunc = extern "x86-interrupt" fn(_: InterruptStackFrame);
 foreign calling convention (Rust とは別の呼び出し規約) `x86-interrupt` ってなんだ. 
 
 
+2021-07-01
+### The Interrupt Calling Convention
+
+例外は関数呼び出しに似ている: CPU は呼び出された関数の最初の命令に jump して実行する. 
+その後 CPU はリターンアドレスへ jump して呼び出し元関数の実行を継続する. 
+
+しかし, 例外と関数呼び出しには大きな違いがある: 関数呼び出しは `call` 命令によって任意に呼び出すことが可能な一方, 例外はどの命令でも起こりうる. 
+この結果の違いを理解するためには関数呼び出しをよく理解する必要がある. 
+
+[呼び出し規約 calling conventions](https://duckduckgo.com/?q=%E5%91%BC%E3%81%B3%E5%87%BA%E3%81%97%E8%A6%8F%E7%B4%84&ia=web) は関数呼び出しの詳細を指定する. 
+例えば, 関数の引数がどこに配置されるか, 結果をどのように返すかを指定する. 
+x86_64 Linux では, C の関数には以下のルール ([System V ABI]() で指定される) が適用される:
+- 最初の 6この引数はレジスタで渡される (`rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`).
+- 追加の引数はスタック上で渡される.
+- 結果は `rax` と `rdx` で返される. 
+
+Rust は C ABI に従っていない. C ABI を使いたい場合は `extern "C" fn` が必要.
+
+### Preserved and Scratch Registers
+
+呼び出し規約はレジスタsを２つに分ける. 
+一つは preserved レジスタ, もう一つは scrach レジスタ. 
+
+The values of preserved registers must remain unchanged across function calls.
+preserved レジスタの値は 関数呼び出しを通じて不変でなければならない. なので呼び出された関数 called function (= "callee") はオリジナルの値がリターン前に復元される場合にのみこれらのレジスタを上書きすることが許容される. これらのレジスタは "callee-saved" と呼ばれる. 典型的にはこれらのレジスタを関数の開始時にスタックに保存しておいてリターンする直前に復元する. 
+
+上とは対照的に, 呼び出される関数は scratch レジスタを復元なしに上書きすることができる. 呼び出し側が関数呼び出しの間 scratch レジスタの値を保存しておきたい場合, 関数呼び出しの前に (値をスタックに送ることで) backup and restore する必要がある. そのため scratch レジスタは "caller-saved" と呼ばれる. 
+
+
+
+
+
 
 
 
