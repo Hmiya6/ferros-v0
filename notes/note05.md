@@ -157,6 +157,7 @@ caller/callee-saved レジスタの状態が想像できない. 関数呼出の�
 
 - caller-saved register = 呼出元退避レジスタ: 呼び出された側で勝手に使って良いレジスタ
 - callee-saved register = 呼出先退避レジスタ: 呼び出すときに保存しなくても良いレジスタ
+
 [呼出規約 - Calling Convention](http://ertl.jp/~takayuki/readings/info/no04.html) より
 
 ---
@@ -206,15 +207,15 @@ of the Hander Function (呼び出された関数)
 --------------
 Stack Alignment (variable)
 --------------
-Stack Segment (SS)
+Stack Segment (SS): スタックの先頭を指す
 --------------
-Stack Pointer (RSP)
+Stack Pointer (RSP): SS からのオフセットで表す
 --------------
 RFLAG
 --------------
-Code Segment (CS)
+Code Segment (CS): コードセグメントの先頭を指す
 --------------
-Instruction Pointer (RIP)
+Instruction Pointer (RIP): CS からのオフセットで表す
 --------------
 Error Code (optional)
 --------------
@@ -331,7 +332,16 @@ fn test_breakpoint_exception() {
 }
 ```
 
+---
+2021-07-28 MTG 追記
 
+caller-saved は (必要であれば) 呼出先への jump 前にレジスタをスタックへ push. 例としては `rax`: x86 では返り値を保持するため, 必然的に caller-saved となる.
+
+callee-saved の場合は (必要であれば) jump 後にレジスタをスタックへ push. 例としては `rbp`. 
+
+割り込みスタックフレームの形成 (= 一部レジスタの保存) は CPU が割り込み時にスタックへの push を行う (caller-saved でも callee-saved でもない). 
+
+SS, CS セグメントレジスタは x86_64 では形骸化 (権限属性を保持するのみ)
 
 
 
