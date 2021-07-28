@@ -28,9 +28,18 @@ pub extern "C" fn _start() -> ! {
     // named `_start` by default
     
     println!("Hello World{}", "!");
+    
+    // setup IDT
+    ferros::init();
+
+    // invoke a breakpoint exceptions
+    x86_64::instructions::interrupts::int3();
 
     #[cfg(test)]
     test_main();
+
+    println!("It did not crash!");
+
     loop {}
 }
 
