@@ -155,10 +155,6 @@ QUESTION: すべてを callee or caller-saved にすることはできない? �
 
 caller/callee-saved レジスタの状態が想像できない. 関数呼出のイメージがついていない?
 
-`rbp` / `rsp` が caller-saved なのは理解できる. どちらも, 呼出先からのリターン後に必要となるし, 呼出先でもこのレジスタを自由に使えるようにする必要がある. 
-
-
-
 - caller-saved register = 呼出元退避レジスタ: 呼び出された側で勝手に使って良いレジスタ
 - callee-saved register = 呼出先退避レジスタ: 呼び出すときに保存しなくても良いレジスタ
 [呼出規約 - Calling Convention](http://ertl.jp/~takayuki/readings/info/no04.html) より
@@ -185,7 +181,7 @@ caller/callee-saved レジスタの状態が想像できない. 関数呼出の�
 通常の関数呼び出しのスタックフレーム: 
 ```
 ---------------- <- Old Stack Pointer
-Return Address
+Return Address (= 呼び出し元の RIP)
 ---------------- <- New Stack Pointer
 Stack Frame
 of the Hander Function (呼び出された関数)
@@ -237,7 +233,7 @@ QUESTION: 割り込みとスタックについて理解できていない.
 1. 戻り先アドレスに加え, CPU の内部状態をスタックに格納する必要がある.
 2. 割り込み同士の優先順位が決まっている. 
 
-Q: 上の割り込みスタックフレームで, 他のレジスタはどこに保管するのか -> 割り込みではレジスタは callee-saved.
+Q: 上の割り込みスタックフレームで, 他のレジスタはどこに保管する?
 
 
 [スタックと割り込み - プログラムが動く仕組みを知ろう ページ6](http://www.kumikomi.net/archives/2008/07/15stack.php?page=6)
@@ -311,7 +307,7 @@ pub extern "C" fn _start() -> ! {
     loop {}
 }
 ```
-## Adding a Test
+### Adding a Test
 
 `src/lib.rs`:
 ```rust
