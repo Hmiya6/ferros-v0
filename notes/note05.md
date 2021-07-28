@@ -139,6 +139,199 @@ preserved レジスタの値は 関数呼び出しを通じて不変でなけれ
 
 上とは対照的に, 呼び出される関数は scratch レジスタを復元なしに上書きすることができる. 呼び出し側が関数呼び出しの間 scratch レジスタの値を保存しておきたい場合, 関数呼び出しの前に (値をスタックに送ることで) backup and restore する必要がある. そのため scratch レジスタは "caller-saved" と呼ばれる. 
 
+callee-saved と caller-saved のレジスタ
+```
+callee-saved: rbp, rbx, rsp, r12, r13, r14, r15
+caller-saved: rax, rcx, rdx, rsi, rdi, r8, r9, r10, r11
+```
+
+
+
+---
+QUESTION: すべてを callee or caller-saved にすることはできない? なぜ2つある
+- caller-saved レジスタは別名 volatile レジスタ (callee-saved は non-volatile)
+- caller-saved レジスタは call の間に必要でない 一時的な quantities を保持するために使われる
+- callee-saved レジスタは call の間に必要な long-lived な値を保持するために使われる
+
+caller/callee-saved レジスタの状態が想像できない. 関数呼出のイメージがついていない?
+
+`rbp` / `rsp` が caller-saved なのは理解できる. どちらも, 呼出先からのリターン後に必要となるし, 呼出先でもこのレジスタを自由に使えるようにする必要がある. 
+
+
+
+- caller-saved register = 呼出元退避レジスタ: 呼び出された側で勝手に使って良いレジスタ
+- callee-saved register = 呼出先退避レジスタ: 呼び出すときに保存しなくても良いレジスタ
+[呼出規約 - Calling Convention](http://ertl.jp/~takayuki/readings/info/no04.html) より
+
+---
+
+
+## Preserving all Registers すべてのレジスタを保存する
+
+関数呼び出しとは対照的に, 例外はどんな命令でも起こりうる. 
+更に, ほとんどの場合 生成されたコードが例外を発生させるかどうかをコンパイル時に知ることはできない. 
+
+いつ例外が発生するかわからないため, 事前にレジスタをバックアップすることはできない. 
+つまり, 例外ハンドラに **caller-saved レジスタに依存する呼び出し規約**を使うことができない. 
+言い換えれば, **すべてのレジスタを保存する呼び出し規約**が必要である. 
+`x86-interrupt` はそのような呼び出し規約で, すべてのレジスタの値は関数が返るときに復元される. 
+
+## The Interrupt Stack Frame
+
+`call` を使った通常の関数呼び出しにおいて, CPU はターゲットの関数に jump する前にリターンアドレスを push する. 
+関数が return するとき, CPU はリターンアドレスを pop してそこへ jump する. 
+
+
+通常の関数呼び出しのスタックフレーム: 
+```
+---------------- <- Old Stack Pointer
+Return Address
+---------------- <- New Stack Pointer
+Stack Frame
+of the Hander Function (呼び出された関数)
+
+----------------
+```
+
+例外と割り込みハンドラの場合, リターンアドレスを push するのは適切ではない, というのは割り込みハンドラは異なる文脈 (スタックポインタや CPU flags) で実行される.
+
+割り込みの場合は以下:
+1. **スタックポインタを align**: 例外はどんな命令でも起こりうるため, スタックポインタもあらゆる値を持ちうる. しかし, CPU 命令の中には (例: SSE 命令の一部) スタックポインタが 16 byte に align しておく必要がある. 
+2. **スタックを切り替え** (必要であれば): CPU 特権レベルが変更される場合, スタックの切り替えが起こる. 例えば, ユーザーモードプログラムで CPU 例外が発生する場合. 
+3. **旧スタックポインタを push**: 例外が発生すると (alignment の前に) CPU はスタックポインタ (`rsp`) とスタックセグメント (`ss`) レジスタを push する. これによって割り込みハンドラからリターンするときにオリジナルのスタックポインタを復元することが可能になる. 
+4. **`RFLAG` レジスタの push と更新**: `RFLAG` レジスタには様々な control and status bits が含まれる. 割り込みに入るとき, CPU はいくつかの bits を変更して, 古い値を push する. 
+5. **命令ポインタの push**: 割り込みハンドラ関数に jump する前に, CPU は命令ポインタ (`rip`) と code segment (`cs`) を push する. これは通常の関数呼び出しのリターンアドレスの push と同等. 
+6. **エラーコードの push** (いくつかのCPU例外で): CPU がエラーコードを push.
+7. **割り込みハンドラを呼び出す**: CPU はアドレスと割り込みハンドラ関数の segment descriptor を IDT (Interrupt Descriptor Table) から読み出す. そしてそのハンドラを呼び出す. 
+
+```
+割り込みスタックフレーム: 
+
+--------------
+Stack Alignment (variable)
+--------------
+Stack Segment (SS)
+--------------
+Stack Pointer (RSP)
+--------------
+RFLAG
+--------------
+Code Segment (CS)
+--------------
+Instruction Pointer (RIP)
+--------------
+Error Code (optional)
+--------------
+Stack Frame of the Handler Function
+--------------
+```
+
+`x86_64` クレートでは, 割り込みスタックフレームは `InterruptStackFrame` 構造体で表現される.
+
+---
+QUESTION: 割り込みとスタックについて理解できていない. 
+割り込みスタックフレームがどのように使われているか理解していない. 
+
+
+割り込みと関数呼び出しの違い:
+1. 戻り先アドレスに加え, CPU の内部状態をスタックに格納する必要がある.
+2. 割り込み同士の優先順位が決まっている. 
+
+Q: 上の割り込みスタックフレームで, レジスタはどこに保管するのか -> 割り込みではレジスタは callee-saved. 
+
+
+[スタックと割り込み - プログラムが動く仕組みを知ろう ページ6](http://www.kumikomi.net/archives/2008/07/15stack.php?page=6)
+
+---
+
+## Behind the Scenes
+
+他に `x86-interrupt` 呼び出し規約について知っておくと良いこと. 
+
+- **引数の扱い**: ほとんどの呼び出し規約は引数がレジスタで渡されることを想定している. これは例外ハンドラでは不可能, スタックにレジスタの値をバックアップするまでそのレジスタを上書きできないから. その代わり, `x86-interrupt` 呼び出し規約は引数がすでに特定のオフセットでスタックに存在することを想定している. 
+- **`iretq` を使ってリターンする**: 割り込みスタックフレームは通常関数呼び出しのそれとはまったく異なっているので, 通常の `ret` 命令ではリターンできない. 代わりに `iretq` 命令が使われる必要がある. 
+- **エラーコードの扱い**: エラーコード stack alignment を変更し, リターンの前に pop される必要がある. 
+- **Aligning the stack**: 16-byte stack alignment が必要な命令 (SSE 命令など) がいくつかある. CPU は 例外が発生したとしてもこの alignment を保証するが, いくつかの命令では, CPU がエラーコードを発するときにその alignment を破壊する. 
+
+これらの問題はすべて, `x86_64` クレートが処理している. 
+
+## Implementation
+`src/lib.rs`: 
+```rust
+pub mod interrupts;
+
+pub fn init() {
+    interrupts::init_idt();
+}
+```
+
+`src/interrupts.rs`: 
+```rust
+
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref IDT: InterruptDescriptorTable = {
+        let mut idt = InterruptDescriptorTable::new();
+        idt.breakpoint.set_handler_fn(breakpoint_handler);
+        idt
+    };
+}
+
+pub fn init_idt() {
+    IDT.load();
+}
+```
+
+ハンドラ関数を追加する. 
+例外の中でも, まずはブレークポイント例外のハンドラを追加する. 
+ブレークポイント例外は ブレークポイント命令 `int3` が実行されたとき一時的にプログラムをポーズさせる. 
+
+breakpoint 例外はデバッガに使われる: breakpoint を設定し, CPU が breakpoint 例外を投げるようにデバッガが対応する命令を `int3` 命令で上書きする. 
+
+
+`src/main.rs`:
+```rust
+#[no_mangle]
+pub extern "C" fn _start() -> ! {
+    println!("Hello World{}", "!");
+
+    blog_os::init(); // new
+
+    // invoke a breakpoint exception
+    x86_64::instructions::interrupts::int3(); // new
+
+    // as before
+    #[cfg(test)]
+    test_main();
+
+    println!("It did not crash!");
+    loop {}
+}
+```
+## Adding a Test
+
+`src/lib.rs`:
+```rust
+#[cfg(test)]
+#[no_mangle]
+pub extern "C" fn _start() -> ! {
+    init();      // IDT のセットアップ
+    test_main();
+    loop {}
+}
+```
+
+`src/interrupts.rs`:
+```rust
+#[test_case]
+fn test_breakpoint_exception() {
+    // breakpoint 例外が起こる. 
+    // 上記の通り, CPU は IDT を読み込んで breakpoint 例外のハンドラ関数を実行しようとする
+    // 
+    x86_64::instructions::interrupts::int3();
+}
+```
 
 
 
