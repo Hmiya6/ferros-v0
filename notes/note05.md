@@ -237,10 +237,16 @@ QUESTION: 割り込みとスタックについて理解できていない.
 1. 戻り先アドレスに加え, CPU の内部状態をスタックに格納する必要がある.
 2. 割り込み同士の優先順位が決まっている. 
 
-Q: 上の割り込みスタックフレームで, レジスタはどこに保管するのか -> 割り込みではレジスタは callee-saved. 
+Q: 上の割り込みスタックフレームで, 他のレジスタはどこに保管するのか -> 割り込みではレジスタは callee-saved.
 
 
 [スタックと割り込み - プログラムが動く仕組みを知ろう ページ6](http://www.kumikomi.net/archives/2008/07/15stack.php?page=6)
+
+- Code Segment (CS): コード用のセグメントレジスタ. 命令ポインタ RIP は常にこのセグメントレジスタを使用. (命令ポインタは CS:RIP でアドレスを指定する)
+- Stack Segment (SS): スタック用のセグメントレジスタ. RSP, RBP によるメモリ参照時はこのセグメントレジスタが使用される. 
+
+[8086 のレジスタ](http://www.tamasoft.co.jp/lasm/help/lasm1to2.htm)
+
 
 ---
 
@@ -271,6 +277,7 @@ pub fn init() {
 use lazy_static::lazy_static;
 
 lazy_static! {
+    // `lazy_static!` では `static ref` で定義する (マクロがそういう仕様になっている)
     static ref IDT: InterruptDescriptorTable = {
         let mut idt = InterruptDescriptorTable::new();
         idt.breakpoint.set_handler_fn(breakpoint_handler);
@@ -283,13 +290,6 @@ pub fn init_idt() {
 }
 ```
 
-ハンドラ関数を追加する. 
-例外の中でも, まずはブレークポイント例外のハンドラを追加する. 
-ブレークポイント例外は ブレークポイント命令 `int3` が実行されたとき一時的にプログラムをポーズさせる. 
-
-breakpoint 例外はデバッガに使われる: breakpoint を設定し, CPU が breakpoint 例外を投げるようにデバッガが対応する命令を `int3` 命令で上書きする. 
-
-
 `src/main.rs`:
 ```rust
 #[no_mangle]
@@ -298,14 +298,16 @@ pub extern "C" fn _start() -> ! {
 
     blog_os::init(); // new
 
-    // invoke a breakpoint exception
+    // `int3` 命令を発生させる. 
+    // CPU は, IDT から breakpoint ハンドラ関数を読み出して実行しようとする. 
     x86_64::instructions::interrupts::int3(); // new
+    // ハンドラ関数を実行後, 復帰して実行を継続する. 
 
     // as before
     #[cfg(test)]
     test_main();
 
-    println!("It did not crash!");
+    println!("It did not crash!"); // 実行されるはず
     loop {}
 }
 ```
