@@ -31,9 +31,12 @@ pub extern "C" fn _start() -> ! {
     
     // setup IDT
     ferros::init();
-
-    // invoke a breakpoint exceptions
-    x86_64::instructions::interrupts::int3();
+    
+    // KERNEL STACK OVERFLOW
+    // fn stack_overflow() {
+    //     stack_overflow();
+    // }
+    // stack_overflow();
 
     #[cfg(test)]
     test_main();
