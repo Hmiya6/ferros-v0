@@ -83,7 +83,7 @@ AMD64 マニュアルにある定義:
 - divide-by-zero -> breakpoint -> page fault: **page fault** 例外
 
  例外が発生すると, CPU は対応する IDT エントリーを読み出そうとする. 
-- エントリーが 0 (= 無効なエントリー) であったり, general protection fault が起こる. 
+- エントリーが 0 (= 無効なエントリー) であったり, general protection fault が起こる (フラッグが設定されている). 
 - general protection fault のハンドラ関数が実装されていなければ, double fault が発生する. 
 
 
@@ -214,8 +214,10 @@ lazy_static! {
         // IST のセットアップ
         tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] = {
             const STACK_SIZE: usize = 4096 * 5;
-            // predefined, known-good stack を生成
-            static mut STACK: [u8; STACK_SIZE] = [0; STACK_SIZE]; // mut な static. static への書き込みが許可されるが, 安全ではないので 書き込む場合には `unsafe` が必要
+            
+            // - predefined, known-good stack を生成
+            // - mut な static. static への書き込みが許可されるが, 安全ではないので 書き込む場合には `unsafe` が必要 (https://doc.rust-lang.org/reference/items/static-items.html 参照)
+            static mut STACK: [u8; STACK_SIZE] = [0; STACK_SIZE]; 
             
             // そのトップアドレスを TSS の IST に登録
             let stack_start = VirtAddr::from_ptr(unsafe { &STACK});
@@ -440,7 +442,7 @@ offset 	0 - 15 	16 - 31
 TR へのロードは `LTR` 命令で実行される. 
 
 ### メモ: descriptor, selector について 
-- segment descriptor: descriptor table (e.g. GDT, IDT) を構成する一つの descriptor. 
+- segment descriptor: descriptor table (e.g. GDT, IDT) を構成する一つの descriptor. (情報そのもの) 
 - segment selector: descriptor への参照. register に保存される情報そのもの. 他にもいくつかの属性を保持する.
 - segment register: segment selector を保存する場所
 
