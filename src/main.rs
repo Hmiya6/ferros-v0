@@ -13,7 +13,7 @@ use ferros::println;
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! { // function that never returns: `-> !` (diverging function)
     println!("{}", _info);
-    loop {}
+    ferros::hlt_loop(); 
 }
 
 #[cfg(test)]
@@ -42,8 +42,7 @@ pub extern "C" fn _start() -> ! {
     test_main();
 
     println!("It did not crash!");
-
-    loop {}
+    ferros::hlt_loop(); 
 }
 
 
