@@ -250,6 +250,10 @@ Page Offset
 ---
 QUESTION: The lowest 12 bits are the offset in the 4KiB page. なぜ下位 12bit のオフセットが必要
 
+> The final step is to add the page offset to the **frame address** to get the **physical address** ...
+
+フレームのアドレスから, アクセスしたい物理アドレスまでのオフセット. 
+
 ---
 
 48-64 の bit が使用されていないとしても, 好きな値をそこにおいていいわけではなく, 47bit 目の値のコピーでなければならない. 
@@ -264,6 +268,7 @@ QUESTION: 結局どれくらい多段ページテーブルは効果的なのか.
 - (level 2 table) * 512 * 512 =  4Kib * 512^2
 - (level 1 table) * 512 * 512 * 512 = 4KiB * 512^3
 Total: 4KiB * 134_480_385 = 550_831_656_960B < 551GB
+このときのアドレス空間: 2^48 byte = 281 TiB
 
 - level 1 table * 2^48 = 4KiB * 281_474_976_710_656
 
@@ -273,24 +278,33 @@ Total: 4KiB * 134_480_385 = 550_831_656_960B < 551GB
 ```
 
 これはあくまで最大の値. 
-例えば 8GB 使うときは? (8GB = 8_000_000_000 bytes)
--> ln2(8_000_000_000) = 32.89.. < 33 .  
+例えば 8GB 使うときは? (8GB = 2^33 bytes)
 -> 33bit あれば対応可能.  
+
+- 64bit のアドレス空間
+- ページテーブルに含まれるエントリの数: 2^9 = 512
+- エントリのサイズ: 2^3 = 8 bytes
+- ページテーブルのサイズ: 2^12 = 4 KiB
+- 8 GiB = 2^33 bytes の物理メモリをマッピングするためのページング機構のサイズは?
 ```
+8 GiB のアドレス: 
+      level 4     level 3     level 2     level 1     offset
+0...0|000 000 000|000 000 XXX|XXX XXX XXX|XXX XXX XXX|XXX XXX XXX XXX
+
 level-4: 1, 
-level-3: 8 (30-32bit? を使用), 
-level-2: 8*512, 
-level-1: 8*512*512, 
-Total: 4KiB * 2_101_249 = 8_606_715_904
+level-3: 1, 
+level-2: 8, 
+level-1: 8 * 512, 
+Total: 1+1+8+8*512 = 4106 
+memory total: 4106 * 4KiB = 168_181_176 bytes ~ 168MiB 
 ```
 
 
-QUESTION: 本当にこの計算あってる?
-
-> mapping 32 Gib of physical memory only requires 132 KiB for page tables since only one level 3 table and 32 level 2 tables are needed.
+> mapping 32 Gib (= 2^35 bytes) of physical memory only requires 132 KiB for page tables since only one level 3 table and 32 level 2 tables are needed.
 
 参考:
-- [What does it mean for a page table to be sparse in the context of Operating System?](https://www.quora.com/What-does-it-mean-for-a-page-table-to-be-sparse-in-the-context-of-Operating-Systems?share=1)
+- [What does it mean for a page table to be sparse in the context of Operating System?](https://www.quora.com/What-does-it-mean-for-a-page-table-to-be-sparse-in-the-context-of-Operating-Systems)
+- [How does multi-level page table save memory space?](https://stackoverflow.com/questions/29467510/how-does-multi-level-page-table-save-memory-space)
 
 ---
 
