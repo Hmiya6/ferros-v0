@@ -612,16 +612,40 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 ```
 
 
-QUESTION: memory map とページテーブルの違い
+### TODO: memory map とページテーブルの違い
 - memory map: BIOS/UEFI ファームウェアとブートローダがつくる. 構造はどうなっている?
 - page table: カーネル向けの page table はブートローダがつくる. 
 
+### TODO: `impl Trait` と `dyn Trait` の違い
+
+どちらも trait で型を隠蔽する
+
+`impl Trait`
+- `impl Trait` は型でない. 匿名の型を表すための糖衣構文で, `impl Trait` はコンパイル時に別の型として翻訳される
+- 静的に解決 -> `impl Trait` で扱う型がコンパイル時に決定されるなら使える
+
+`dyn Trait`
+- 動的に解決 -> `dyn Trait` で扱う型がコンパイル時に決定できない時に使用する
+- 型を決定できない -> サイズが不明 -> `Box<dyn Trait>` で使う. 
+- 
 
 
+```rust
+use std::iter;
 
+// nの倍数を列挙 (コンパイルエラー)
+fn multiples_of(n: i32) -> impl Iterator<Item=i32> {
+    if n == 0 { //~ERROR if and else have incompatible types
+        iter::once(0)
+    } else {
+        (0..).map(move |m| n * m)
+    }
+}
+```
 
-
-
+参考: 
+- [安定化間近！Rustのimpl Traitを今こそ理解する](https://qnighy.hatenablog.com/entry/2018/01/28/220000)
+- [Rustのimpl Traitが使えそうで使えない場所](https://ironoir.hatenablog.com/entry/2021/01/11/174735)
 
 
 
