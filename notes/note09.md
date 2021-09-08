@@ -136,6 +136,11 @@ CPU が変換時にこのエントリに従うと, level 3 テーブルへ到達
 - [Recursive Mapping](https://os.phil-opp.com/page-tables/#recursive-mapping)
 
 ---
+### recursive page table の欠点について
+1. 仮想アドレス空間の圧迫: L3,2,1+offset の 2^39 = 512GiB を占領する
+2. 別のアドレス空間へのアクセス: recursive entry を別のページテーブルへ繋げることで可能. あとでそのエントリをもとの値に復帰させる必要がある.
+
+---
 ### memo: can と may (could と might)
 - (may と比較すると) can は the physical or mental ability to do something に言及する場合に使用される. 
 - (can と比較すると) may は authorization or permisson to do somethung に言及する場合

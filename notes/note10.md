@@ -223,4 +223,229 @@ dynamic memory allocation 動的メモリ確保 はいつ使うべき?
 このため性能を重視するカーネルコードではローカル変数が好まれる. 
 しかし, 動的メモリ確保が最良の選択であるケースもある.
 
+基本的に, 動的メモリは動的な lifetime やサイズをもつ変数に必要となる. 
+動的な lifetime という観点で最も重要な型は `Rc` で, これによって wrap された値への参照をカウントして deallocate するタイミングを決定する. 
+動的なサイズという観点の例としては `Vec` や `String` 等の collection 型が挙げられる. 
+
+カーネルにも collection 型が必要となり, 例としてはマルチタスクの実行中タスクのリストの保存などが挙げられる. 
+
+## The Allocator Interface
+
+最初のステップは built-in の `alloc` クレートを dependency に加えること. 
+`core` クレートと同じく, 標準ライブラリのサブセットで, allocation と collection 型を含む. 
+
+```rust
+extern crate alloc;
+```
+
+通常の dependencies と異なり, `Cargo.toml` を編集する必要はない. 
+それは `alloc` クレートが標準ライブラリの一部として Rust compiler に同梱されているから. 
+`extern crate` statement を加えることで, コンパイラがそれを include する必要があることを伝える. 
+
+custom target にコンパイルしているため, Rust をインストールするときに同梱されている precompile された `alloc` を使用することができない. 
+その代わり, cargo へ `alloc` を再コンパイルするように命令する必要がある. `ustable.build-std` を使うことでそれが可能になる. 
+
+`#[no_std]` 環境で `alloc` クレートには追加の必要要件があるから. 
+
+実際, コンパイルしようとすると以下のエラーが発生する. 
+```
+error: no global memory allocator found but one is required; link to std or add
+       #[global_allocator] to a static item that implements the GlobalAlloc trait.
+
+error: `#[alloc_error_handler]` function required, but not found
+```
+
+1つ目のエラーは `alloc` クレートが heap allocator を必要とするために発生しており, heap allocator は `allocate`/`deallocate` 関数を提供する. 
+Rust では heap allocator は `GlobalAlloc` トレイトで記述される. 
+
+2つ目のエラーは `allocate` の失敗に対応するための `#[alloc_error_handler]` 関数が定義されていないことから発生する. 
+
+### The `GlobalAlloc` Trait
+
+`GlobalAlloc` トレイトは heap allocator を提供する関数群を定義する. 
+このトレイトは通常のものと違ってプログラマから直接使われることはほとんどない. 
+その代わり, コンパイラが自動的にこのトレイトのメソッドを呼び出している. 
+
+```rust
+pub unsafe trait GlobalAlloc {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8;
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout);
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 { ... }
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 { ... }
+}
+```
+
+`alloc` / `dealloc` メソッドを定義する必要がある. 
+- `alloc` メソッドは `Layout` インスタンスを引数にとる. `Layout` は allocate されるメモリの size や alignment が記述される. `alloc` は allocate されたメモリブロックの先頭バイトへの生ポインタを返す. 明示的なエラーではなく, `alloc` メソッドは allocation error をシグナルするためにヌルポインタを返す. これはあまり idiomatic ではないが, これによって既存の system allocator の wrapping が容易になる. 
+- `dealloc` メソッドはメモリブロックを解放する責任を負う. `alloc` に返されたポインタや allocation に使用された `Layout` を引数にとる. 
+
+`GlobalAlloc` は `alloc_zeroed` / `realloc` に関してデフォルト実装を定義している. 
+
+## A `DummyAllocator` 
+
+簡単な dummy allocator をつくることが可能になった. 
+
+`src/lib.rs`: 
+```rust
+pub mod allocator;
+```
+
+`src/allocator.rs`: 
+```rust
+use alloc::alloc::{GlobalAlloc, Layout};
+use core::ptr::null_mut;
+
+pub struct Dummy;
+
+unsafe impl GlobalAlloc for Dummy {
+    unsafe fn alloc(&self, _layout: Layout) -> *mut u8 {
+        null_mut() // ヌルポインタを返す == allocation error 
+    }
+
+    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {
+        panic!("dealloc should be never called") // allocation の時点で失敗しているため, 呼ばれることはないはず. 
+    }
+}
+```
+
+### The `#[global_allocator]` Attribute
+
+allocation が失敗するような allocator を作ったので, `#[global_allocator]` でそれに対処するような関数を実装する. 
+
+`src/lib.rs`: 
+```rust
+#![feature(alloc_error_handler)] // ファイルの先頭に
+
+#[alloc_error_handler]
+fn alloc_error_handler(layout: alloc::alloc::Layout) -> ! {
+    panic!("allocation error: {:?}", layout)
+}
+```
+`#[alloc_error_handler]` はまだ unstable なので feature flag で有効化する. 
+関数は `Layout` 型を引数にすることが必要. 
+
+これでコンパイルエラーは解消された. 
+
+これによって, collection 型を使用することができるようになったが, 当然ながら中身の実装ができていないので, `kernel_main` 関数等で `Box::new` を行うとエラーが発生する. 
+
+これを直すには本当に使用可能なメモリを返す allocator を実装する必要がある.
+
+## Creating a Kernel Heap
+
+適切な allocator をつくる前に, まず allocator がメモリを割り当て可能なヒープメモリ区域をつくる. 
+これを行うにはヒープ区画のための仮想メモリ範囲を定義してその区画を物理フレームへとマップする必要がある. 
+
+まず仮想メモリ領域を heap として定義する. 
+他のメモリ区域に使われていない限り任意の仮想アドレス範囲を選ぶことが可能. 
+アドレス `0x_4444_4444_0000` からヒープメモリが開始するように定義するとしよう. 
+
+`src/allocator.rs`: 
+```rust
+pub const HEAP_START: usize = 0x_4444_4444_0000;
+pub const HEAP_SIZE: usize = 100 * 1024; // 100 KiB
+```
+
+ヒープサイズは 100 KiB とする. 
+
+
+`src/allocator.rs`: 
+```rust
+use x86_64::{
+    structures::paging::{
+        mapper::MapToError, FrameAllocator, Mapper, Page, PageTableFlags, Size4KiB,
+    },
+    VirtAddr,
+};
+
+pub fn init_heap(
+    mapper: &mut impl Mapper<Size4KiB>, // size 4KiB の Mapper (page table)
+    frame_allocator: &mut impl FrameAllocator<Size4KiB>, // frame_allocator
+) -> Result<(), MapToError<Size4KiB>> {
+    let page_range = {
+        let heap_start = VirtAddr::new(HEAP_START as u64);
+        let heap_end = heap_start + HEAP_SIZE - 1u64;
+        let heap_start_page = Page::containing_address(heap_start); // heap_start を含む page を返す
+        let heap_end_page = Page::containing_address(heap_end); // heap_end を含む page を返す
+        Page::range_inclusive(heap_start_page, heap_end_page)
+    };
+    
+    // page range のそれぞれの page を物理フレームへマップ
+    for page in page_range {
+        let frame = frame_allocator
+            .allocate_frame()
+            .ok_or(MapToError::FrameAllocationFailed)?;
+        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+        unsafe {
+            mapper.map_to(page, frame, flags, frame_allocator)?.flush() // map の実行
+        };
+    }
+
+    Ok(())
+}
+```
+
+## Using an Allocator Crate
+
+allocator の実装は複雑なので, 外部の allocator crate を使用する. 
+
+`no_std` 環境での簡単な allocator クレートは `linked_list_allocator` である. 
+この allocator は deallocate されたメモリ区域を追跡するために linked list 構造を用いている. 
+
+```toml
+[dependencies]
+linked_list_allocator = "0.9.0"
+```
+
+`src/allocator.rs`
+```rust
+use linked_list_allocator::LockedHeap;
+
+#[global_allocator]
+static ALLOCATOR: LockedHeap = LockedHeap::empty();
+
+
+pub fn init_heap(
+    mapper: &mut impl Mapper<Size4KiB>,
+    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+) -> Result<(), MapToError<Size4KiB>> {
+    // […] heap page の物理ページへのマップ
+
+    unsafe {
+        ALLOCATOR.lock().init(HEAP_START, HEAP_SIZE); // `LockedHeap` は `lock` を行ってから操作する. 
+    }
+
+    Ok(())
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
